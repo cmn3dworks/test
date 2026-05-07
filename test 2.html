@@ -34,10 +34,8 @@
             align-items: center;
             height: 100vh;
             width: 100vw;
-            /* Force perfectly sharp edges for the 8-bit aesthetic */
-            -webkit-font-smoothing: none;
-            font-smooth: never;
-            image-rendering: pixelated;
+            /* Removed image-rendering: pixelated because it destroys smooth shadows/gradients */
+            -webkit-font-smoothing: antialiased;
         }
 
         /* Main Container matches TikTok Live resolution */
@@ -618,10 +616,21 @@
 
     <!-- Logic for Live Effects -->
     <script>
-        // --- Auto-Scaling REMOVED for Crisp Stream Rendering ---
-        // We disabled fitToScreen() because TikTok Live Studio needs 
-        // to render this at exactly 1080x1920 natively. Auto-scaling 
-        // down and stretching it back up causes blur.
+        // --- Auto-Scaling Restored ---
+        // Since TikTok Live Studio locks resolution settings for some users, 
+        // we MUST scale the 1080x1920 layout to fit whatever tiny window it provides.
+        function fitToScreen() {
+            const container = document.querySelector('.overlay-container');
+            const scaleX = window.innerWidth / 1080;
+            const scaleY = window.innerHeight / 1920;
+            // Removed the '1' cap so it can scale up or down as heavily as needed
+            const scale = Math.min(scaleX, scaleY); 
+            container.style.transform = `scale(${scale})`;
+            container.style.transformOrigin = 'center center';
+        }
+
+        window.addEventListener('resize', fitToScreen);
+        fitToScreen(); // Trigger on load
         
         // --- MATTER.JS PHYSICS SETUP ---
         const Engine = Matter.Engine,
