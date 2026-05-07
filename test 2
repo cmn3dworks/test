@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-Bit 3D Print TikTok Live Overlay</title>
+    <!-- Import Google Font for 8-bit aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <!-- Import Matter.js for 2D Physics -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        :root {
+            --bg-base: #26292d; /* Comfy dark grey base */
+            --shadow-dark: rgba(15, 17, 20, 0.9); /* Deep shadow */
+            --shadow-light: rgba(65, 70, 75, 0.5); /* Soft highlight */
+            --text-primary: #cbd5e1; /* Easy-reading light grey text */
+            --text-main: #00ffcc;
+            --text-alert: #ff0055;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: transparent; /* Ensures OBS captures it as transparent */
+            overflow: hidden;
+            font-family: 'Press Start 2P', monospace;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* Main Container matches TikTok Live resolution */
+        .overlay-container {
+            position: relative;
+            width: 1080px;
+            height: 1920px;
+            overflow: hidden;
+            flex-shrink: 0;
+            /* Removed background-color to ensure viewports are fully transparent to OBS */
+        }
+
+        /* SVG Mask for the transparent camera holes */
+        .svg-mask {
+            position: absolute;
+            width: 0;
+            height: 0;
+        }
+
+        /* The patterned background with the mask applied */
+        .background-scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1080px;
+            height: 1920px;
+            mask: url(#cam-mask);
+            -webkit-mask: url(#cam-mask);
+            z-index: 1;
+            overflow: hidden;
+            background-color: var(--bg-base);
+            /* Subtle pegboard/workshop texture */
+            background-image: radial-gradient(rgba(0, 0, 0, 0.35) 3px, transparent 3px);
+            background-size: 24px 24px;
+        }
+
+        /* --- Built-In Casework / Structural Elements --- */
+        
+        /* Panel lines creating a casing around the viewports */
+        .panel-line {
+            position: absolute;
+            background-color: transparent;
+            border-top: 2px solid var(--shadow-dark);
+            border-bottom: 2px solid var(--shadow-light);
+            opacity: 0.5;
+        }
+        .pl-1 { top: 1080px; left: 0; width: 100%; height: 0; }
+        .pl-2 { top: 1600px; left: 0; width: 100%; height: 0; }
+        
+        .panel-line-vert {
+            position: absolute;
+            background-color: transparent;
+            border-left: 2px solid var(--shadow-dark);
+            border-right: 2px solid var(--shadow-light);
+            opacity: 0.5;
+        }
+        .pl-v1 { top: 0; left: 20px; width: 0; height: 100%; }
+        .pl-v2 { top: 0; right: 20px; width: 0; height: 100%; }
+
+        /* Neumorphic LED Pill Indicators */
+        .status-indicator {
+            position: absolute;
+            background: linear-gradient(180deg, #ff0055, #8800ff, #00ffcc, #ffaa00, #ff0055);
+            background-size: 100% 400%;
+            animation: rgb-scroll 4s linear infinite;
+            border-radius: 10px;
+            /* Gives it a physical 3D capsule look deeply embedded in the casing */
+            box-shadow: 
+                inset 4px 4px 6px rgba(0,0,0,0.6), 
+                inset -2px -2px 6px rgba(255,255,255,0.1),
+                4px 4px 8px var(--shadow-dark),
+                -4px -4px 8px var(--shadow-light),
+                0 0 15px rgba(0, 255, 204, 0.15); /* Soft ambient glow */
+        }
+        @keyframes rgb-scroll {
+            0% { background-position: 0% 0%; }
+            100% { background-position: 0% 100%; }
+        }
+        /* Thick pill shape nestled between the main cam and the right panel line */
+        .rgb-accent-1 { top: 450px; left: 995px; width: 20px; height: 300px; }
+        /* Thick pill shape nestled between the creator cam and the left panel line */
+        .rgb-accent-2 { top: 1210px; left: 90px; width: 20px; height: 250px; }
+
+        /* Neumorphic UI Panels */
+        .pixel-panel {
+            background-color: var(--bg-base);
+            border-radius: 16px;
+            box-shadow: 
+                8px 8px 16px var(--shadow-dark), 
+                -8px -8px 16px var(--shadow-light);
+            position: absolute;
+            z-index: 10;
+        }
+
+        /* Top Header (Recessed look) */
+        .header {
+            top: 40px;
+            left: 140px;
+            width: 800px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            letter-spacing: 2px;
+            box-shadow: 
+                inset 6px 6px 12px var(--shadow-dark), 
+                inset -6px -6px 12px var(--shadow-light);
+            border: 2px solid transparent; /* Keeps sizing intact */
+        }
+
+        .blinking-dot {
+            width: 16px;
+            height: 16px;
+            background-color: var(--text-alert);
+            margin-right: 20px;
+            border-radius: 50%;
+            box-shadow: inset 2px 2px 4px rgba(0,0,0,0.4);
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0.2; }
+        }
+
+        /* Integrated Camera Frames (Neumorphic Inset) */
+        .cam-frame {
+            position: absolute;
+            /* Creates a thick, physical-looking bezel */
+            border: 16px solid var(--bg-base);
+            border-radius: 20px;
+            /* Inner shadow makes it look like a deep hole; outer highlights it */
+            box-shadow: 
+                inset 8px 8px 16px rgba(0, 0, 0, 0.7),
+                inset -4px -4px 8px rgba(255, 255, 255, 0.05),
+                8px 8px 16px var(--shadow-dark),
+                -8px -8px 16px var(--shadow-light);
+            background: transparent;
+            z-index: 10;
+        }
+
+        /* Bambu P1S Style Printer (Adjusted to sit in the light environment) */
+        .bambu-printer {
+            position: absolute;
+            bottom: 350px; /* Moved up to fill space */
+            left: 320px; /* Centered in the left half */
+            /* Scaled up by 1.3x to make it larger */
+            transform: translateX(-50%) scale(1.3);
+            transform-origin: bottom center;
+            width: 220px;
+            height: 280px;
+            z-index: 5;
+            /* Add a subtle drop shadow to ground it */
+            filter: drop-shadow(0px 20px 15px rgba(0,0,0,0.3));
+        }
+
+        .bambu-ams {
+            position: absolute;
+            top: 0;
+            left: 20px;
+            width: 180px;
+            height: 50px;
+            background-color: #2a2a35;
+            border: 4px solid #444;
+            border-radius: 8px 8px 0 0;
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            padding: 4px;
+        }
+
+        .ams-spool {
+            width: 30px;
+            height: 38px;
+            border: 3px solid #111;
+            border-radius: 4px;
+            box-shadow: inset 2px 2px 4px rgba(255,255,255,0.2);
+        }
+        .ams-s1 { background-color: var(--text-main); } /* Cyan (Plus) */
+        .ams-s2 { background-color: var(--text-alert); } /* Pink/Red (Heart) */
+        .ams-s3 { background-color: #ffaa00; } /* Yellow/Orange (Gift) */
+        .ams-s4 { background-color: #fff; } /* White (Share) */
+
+        .bambu-enclosure {
+            position: absolute;
+            top: 50px;
+            left: 0;
+            width: 220px;
+            height: 230px;
+            background-color: #1a1a24;
+            border: 6px solid #3a3f47;
+            border-radius: 12px;
+            box-shadow: inset 8px 8px 0 rgba(255,255,255,0.05), inset -8px -8px 0 rgba(0,0,0,0.5);
+        }
+
+        .bambu-door {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 4px solid #111;
+            border-radius: 4px;
+        }
+
+        .bambu-gantry {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 24px;
+            background-color: #444;
+            border-bottom: 4px solid #222;
+        }
+
+        .bambu-toolhead {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 34px;
+            height: 28px;
+            background-color: var(--bg-base); /* Matches main casing */
+            border: 3px solid #111;
+            border-radius: 3px;
+            transform: translateX(71px); /* Default to center */
+            /* Removed the generic animation, it is now handled by JS per shape */
+        }
+
+        .bambu-logo {
+            position: absolute;
+            top: 4px;
+            left: 4px;
+            width: 18px;
+            height: 4px;
+            background-color: #333;
+        }
+
+        .bambu-nozzle {
+            position: absolute;
+            bottom: -6px;
+            left: 10px;
+            width: 6px;
+            height: 6px;
+            background-color: #ffaa00;
+        }
+
+        .bambu-bed {
+            position: absolute;
+            top: 34px;
+            left: 14px;
+            width: 148px;
+            height: 14px;
+            background-color: #666;
+            border: 4px solid #111;
+            border-radius: 2px;
+        }
+
+        .bambu-print-container {
+            position: absolute;
+            bottom: 100%;
+            left: 40px;
+            width: 68px;
+            height: 0px;
+            overflow: hidden;
+        }
+
+        /* 3D Print Object base class */
+        .bambu-print-obj {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 68px;
+            height: 68px; /* Square proportions for symbols */
+        }
+
+        /* --- Object Colors & Gradients --- */
+        .color-plus {
+            background-color: #ffffff;
+            background-image: linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(200,200,200,0.2) 100%);
+        }
+        .color-heart {
+            background-color: #ff0050; /* TikTok Red */
+            background-image: linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(0,0,0,0.2) 100%);
+        }
+        .color-gift {
+            background-color: #ff0050;
+            background-image:
+                /* White Bow on top (0% to 22%) */
+                linear-gradient(to bottom, #ffffff 0%, #ffffff 22%, transparent 22%),
+                /* Vertical Ribbon */
+                linear-gradient(to right, transparent 42%, #ffffff 42%, #ffffff 58%, transparent 58%),
+                /* Horizontal Ribbon */
+                linear-gradient(to bottom, transparent 55%, #ffffff 55%, #ffffff 70%, transparent 70%),
+                /* Dark shadow under lid */
+                linear-gradient(to bottom, transparent 38%, rgba(0,0,0,0.4) 38%, rgba(0,0,0,0.4) 41%, transparent 41%),
+                /* Base Lighting */
+                linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(0,0,0,0.3) 100%);
+        }
+        .color-share {
+            background-color: #ffffff;
+            background-image: linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(200,200,200,0.2) 100%);
+        }
+        .color-coin {
+            background-color: #ffce00; /* TikTok Coin Gold */
+            background-image:
+                /* Inner Coin Ring */
+                radial-gradient(circle at 50% 50%, transparent 35%, rgba(220, 160, 0, 0.6) 40%, rgba(220, 160, 0, 0.6) 45%, transparent 50%),
+                linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(0,0,0,0.2) 100%);
+        }
+
+        /* --- TikTok Themed Shape Masks --- */
+        .shape-plus {
+            clip-path: polygon(35% 35%, 35% 0%, 65% 0%, 65% 35%, 100% 35%, 100% 65%, 65% 65%, 65% 100%, 35% 100%, 35% 65%, 0% 65%, 0% 35%);
+        }
+        .shape-heart {
+            /* Smooth, mathematically perfect plump heart curve */
+            clip-path: path('M 34,18 C 54,0 68,10 68,28 C 68,48 34,66 34,66 C 34,66 0,48 0,28 C 0,10 14,0 34,18 Z');
+        }
+        .shape-gift {
+            /* Box, overlapping lid, and distinct bow loops on top */
+            clip-path: polygon(
+                10% 100%, 
+                90% 100%, 
+                90% 38%, 
+                100% 38%, 
+                100% 22%, 
+                62% 22%, 
+                80% 5%, 
+                65% 0%, 
+                53% 10%, 
+                47% 10%, 
+                35% 0%, 
+                20% 5%, 
+                38% 22%, 
+                0% 22%, 
+                0% 38%, 
+                10% 38%
+            );
+        }
+        .shape-share {
+            clip-path: polygon(0% 70%, 20% 70%, 25% 45%, 55% 45%, 55% 70%, 100% 35%, 55% 0%, 55% 20%, 10% 20%, 0% 40%);
+        }
+        .shape-coin {
+            clip-path: circle(48% at 50% 50%);
+        }
+
+        /* --- Global Stack Items (Driven by Matter.js) --- */
+        .stacked-item {
+            position: absolute;
+            z-index: 6; /* Foreground, in front of the printer body so it drops outward */
+            width: 68px;
+            height: 68px;
+            /* transform will be overridden by JS physics, but we use translate(-50%, -50%) as the center pivot */
+            transform-origin: center center;
+        }
+
+        /* --- Call to Action Panel --- */
+        .cta-panel {
+            position: absolute;
+            bottom: 80px;
+            left: 320px; /* Aligned with the printer */
+            transform: translateX(-50%);
+            width: 460px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            color: var(--text-primary);
+            border: 4px solid var(--shadow-dark);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            animation: pulse-border 2s infinite;
+            z-index: 10; /* Ensures stacked objects drop behind it */
+        }
+        
+        .cta-heart {
+            color: var(--text-alert);
+            margin-right: 20px;
+            font-size: 32px;
+            animation: beat 1s infinite;
+            display: inline-block;
+        }
+
+        @keyframes beat {
+            0%, 100% { transform: scale(1); }
+            20% { transform: scale(1.3); }
+            40% { transform: scale(1); }
+            60% { transform: scale(1.3); }
+            80% { transform: scale(1); }
+        }
+
+        /* --- Calm Breathing Borders --- */
+        .filament-svg {
+            position: absolute;
+            top: -16px;
+            left: -16px;
+            width: calc(100% + 32px);
+            height: calc(100% + 32px);
+            pointer-events: none;
+            z-index: 20;
+            overflow: visible;
+        }
+
+        .filament-glow {
+            fill: none;
+            stroke: var(--text-main);
+            stroke-width: 4;
+            stroke-linecap: round;
+            filter: drop-shadow(0 0 12px var(--text-main));
+            animation: breathe-glow 6s ease-in-out infinite;
+        }
+
+        .filament-glow.color-alert {
+            stroke: var(--text-alert);
+            filter: drop-shadow(0 0 12px var(--text-alert));
+            animation-delay: 3s; /* Offsets the breathing cycle */
+        }
+
+        @keyframes breathe-glow {
+            0%, 100% { opacity: 0.15; }
+            50% { opacity: 0.9; }
+        }
+
+        .cta-heart {
+            color: var(--text-alert);
+            margin-right: 20px;
+            font-size: 32px;
+            animation: beat 1s infinite;
+            display: inline-block;
+        }
+
+        @keyframes beat {
+            0%, 100% { transform: scale(1); }
+            20% { transform: scale(1.3); }
+            40% { transform: scale(1); }
+            60% { transform: scale(1.3); }
+            80% { transform: scale(1); }
+        }
+
+        @keyframes pulse-border {
+            0%, 100% { 
+                border-color: var(--shadow-dark); 
+                box-shadow: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light); 
+            }
+            50% { 
+                border-color: var(--text-alert); 
+                box-shadow: 0 0 20px rgba(255, 0, 85, 0.4), inset 0 0 10px rgba(255, 0, 85, 0.2); 
+            }
+        }
+
+        /* --- Dynamic Toolhead Print Tracking Animations --- */
+        @keyframes anim-xy-plus {
+            0% { transform: translateX(71px); }
+            20% { transform: translateX(60px); }
+            30% { transform: translateX(82px); }
+            35% { transform: translateX(37px); } /* Widens for crossbar */
+            50% { transform: translateX(105px); }
+            65% { transform: translateX(37px); }
+            70% { transform: translateX(82px); } /* Narrows for top */
+            90% { transform: translateX(60px); }
+            100% { transform: translateX(71px); }
+        }
+        @keyframes anim-xy-heart {
+            0% { transform: translateX(71px); }
+            15% { transform: translateX(82px); }
+            25% { transform: translateX(55px); }
+            40% { transform: translateX(105px); } /* Widest point */
+            55% { transform: translateX(37px); }
+            75% { transform: translateX(97px); }
+            85% { transform: translateX(50px); } /* Separates into lobes */
+            95% { transform: translateX(87px); }
+            100% { transform: translateX(71px); }
+        }
+        @keyframes anim-xy-gift {
+            0% { transform: translateX(71px); }
+            15% { transform: translateX(45px); }
+            35% { transform: translateX(97px); }
+            55% { transform: translateX(45px); }
+            70% { transform: translateX(97px); }
+            75% { transform: translateX(105px); } /* Lid pops out */
+            85% { transform: translateX(37px); }
+            95% { transform: translateX(82px); } /* Narrows for bow */
+            100% { transform: translateX(71px); }
+        }
+        @keyframes anim-xy-share {
+            0% { transform: translateX(71px); }
+            20% { transform: translateX(55px); }
+            40% { transform: translateX(80px); }
+            60% { transform: translateX(37px); }
+            80% { transform: translateX(105px); } /* Arrow head */
+            100% { transform: translateX(71px); }
+        }
+        @keyframes anim-xy-coin {
+            0% { transform: translateX(71px); }
+            20% { transform: translateX(45px); }
+            40% { transform: translateX(100px); }
+            50% { transform: translateX(37px); } /* Center width */
+            60% { transform: translateX(105px); }
+            80% { transform: translateX(45px); }
+            100% { transform: translateX(71px); }
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- SVG Mask to punch transparent holes into the background for OBS -->
+    <svg class="svg-mask">
+        <defs>
+            <mask id="cam-mask">
+                <!-- White = Visible Background -->
+                <rect width="1080" height="1920" fill="white" />
+                <!-- Black = Transparent Cutouts for Camera feeds -->
+                <!-- Mask edges are shrunk to hide them cleanly behind the thick 16px borders -->
+                <!-- Cutout 1: Printer Cam (Now on top, expanded) -->
+                <rect x="36" y="56" width="1008" height="1008" fill="black" rx="4" />
+                <!-- Cutout 2: Face Cam (Now vertical on the right) -->
+                <rect x="596" y="1126" width="428" height="738" fill="black" rx="4" />
+            </mask>
+        </defs>
+    </svg>
+
+    <div class="overlay-container">
+        
+        <!-- The Masked Background -->
+        <div class="background-scene">
+            
+            <!-- Structural Panel Lines cutting across the casing -->
+            <div class="panel-line pl-1"></div>
+            <div class="panel-line pl-2"></div>
+            <div class="panel-line-vert pl-v1"></div>
+            <div class="panel-line-vert pl-v2"></div>
+
+            <!-- Neumorphic RGB Status Indicators -->
+            <!-- Top indicator removed to make room for the larger camera frame -->
+            <div class="status-indicator rgb-accent-2" style="top: 1110px; left: 40px; height: 770px;"></div>
+
+        </div>
+
+        <!-- Camera Framing Overlays (Sit over the transparent holes) -->
+        <div class="cam-frame printer-cam" style="top: 40px; left: 20px; width: 1040px; height: 1040px;"></div>
+        <div class="cam-frame face-cam" style="top: 1110px; left: 580px; width: 460px; height: 770px;"></div>
+
+        <!-- Call to Action Panel -->
+        <div class="pixel-panel cta-panel">
+            <span class="cta-heart">♥</span> LIKE & FOLLOW
+        </div>
+
+        <!-- Animated 8-bit Bambu P1S Decor -->
+        <div class="bambu-printer">
+            <div class="bambu-ams">
+                <div class="ams-spool ams-s1"></div>
+                <div class="ams-spool ams-s2"></div>
+                <div class="ams-spool ams-s3"></div>
+                <div class="ams-spool ams-s4"></div>
+            </div>
+            <div class="bambu-enclosure">
+                <div class="bambu-door">
+                    <div class="bambu-bed">
+                        <div class="bambu-print-container">
+                            <!-- Controlled by JS below -->
+                            <div class="bambu-print-obj"></div>
+                        </div>
+                    </div>
+                    <div class="bambu-gantry">
+                        <div class="bambu-toolhead">
+                            <div class="bambu-logo"></div>
+                            <div class="bambu-nozzle"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Logic for Live Effects -->
+    <script>
+        // --- Auto-Scaling for Previews / Smaller Screens ---
+        // This ensures the 1080x1920 canvas scales down to fit your current screen.
+        function fitToScreen() {
+            const container = document.querySelector('.overlay-container');
+            const scaleX = window.innerWidth / 1080;
+            const scaleY = window.innerHeight / 1920;
+            const scale = Math.min(scaleX, scaleY, 1); 
+            container.style.transform = `scale(${scale})`;
+            container.style.transformOrigin = 'center center';
+        }
+
+        window.addEventListener('resize', fitToScreen);
+        fitToScreen(); // Trigger on load
+
+
+        // --- MATTER.JS PHYSICS SETUP ---
+        const Engine = Matter.Engine,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Body = Matter.Body;
+
+        const engine = Engine.create();
+        const runner = Runner.create();
+        Runner.run(runner, engine);
+
+        // Invisible walls to keep objects in a neat pile
+        // The CTA panel is at bottom: 80px, height: 100px. So top is y = 1920 - 180 = 1740.
+        // Ground top edge at 1740 matches the CTA panel perfectly. Width 520 spans exactly from x=60 to x=580.
+        const ground = Bodies.rectangle(320, 1760, 520, 40, { isStatic: true });
+        
+        // Straight vertical walls matching the visual UI boundaries!
+        // Left wall right edge at x=60 (matches RGB pill perfectly)
+        const wallLeft = Bodies.rectangle(30, 1400, 60, 800, { isStatic: true });
+        // Right wall left edge at x=580 (matches Vertical Face Cam perfectly)
+        const wallRight = Bodies.rectangle(610, 1400, 60, 800, { isStatic: true });
+
+        Composite.add(engine.world, [ground, wallLeft, wallRight]);
+
+        // Sync Matter.js bodies to DOM elements
+        Matter.Events.on(engine, 'afterUpdate', function() {
+            stack.forEach(item => {
+                if (!item.body || !item.elem) return;
+                const pos = item.body.position;
+                const angle = item.body.angle;
+                
+                // Set absolute position and apply scale and rotation
+                item.elem.style.left = `${pos.x}px`;
+                item.elem.style.top = `${pos.y}px`;
+                item.elem.style.transform = `translate(-50%, -50%) scale(1.3) rotate(${angle}rad)`;
+            });
+        });
+
+
+        // --- Printer Animation Sequence ---
+        const bed = document.querySelector('.bambu-bed');
+        const printContainer = document.querySelector('.bambu-print-container');
+        const printObj = document.querySelector('.bambu-print-obj');
+        const toolhead = document.querySelector('.bambu-toolhead');
+
+        // Added physics profiles to match the clip-path shapes
+        const printConfig = [
+            { shape: 'shape-plus', colorClass: 'color-plus', anim: 'anim-xy-plus', type: 'rect' },
+            { shape: 'shape-heart', colorClass: 'color-heart', anim: 'anim-xy-heart', type: 'rect' },
+            { shape: 'shape-gift', colorClass: 'color-gift', anim: 'anim-xy-gift', type: 'rect' },
+            { shape: 'shape-share', colorClass: 'color-share', anim: 'anim-xy-share', type: 'rect' },
+            { shape: 'shape-coin', colorClass: 'color-coin', anim: 'anim-xy-coin', type: 'circle' }
+        ];
+        
+        let idx = 0;
+        const stack = [];
+        const MAX_STACK = 24; // Slightly lowered so the natural pile doesn't overflow into the printer
+        let currentPattern = 0; // Cycles between 3 different stacking patterns
+
+        function playAnimationSequence() {
+            // 1. Reset / Prepare Bed & Object
+            bed.style.transition = 'top 1.5s ease-in-out';
+            bed.style.top = '34px';
+            
+            printContainer.style.transition = 'none';
+            printContainer.style.height = '0px';
+            printContainer.style.transform = 'translateY(0) scale(1) rotate(0deg)';
+            printContainer.style.opacity = '1';
+            printContainer.style.zIndex = '1';
+            
+            const currentItem = printConfig[idx];
+            printObj.className = `bambu-print-obj ${currentItem.shape} ${currentItem.colorClass}`;
+            
+            toolhead.style.animation = `${currentItem.anim} 4s linear 1`;
+            
+            // Wait for bed to rise
+            setTimeout(() => {
+                // 2. Print phase
+                bed.style.transition = 'top 4s linear';
+                bed.style.top = '102px'; 
+                
+                printContainer.style.transition = 'height 4s linear';
+                printContainer.style.height = '68px';
+                
+                // Wait for print to finish
+                setTimeout(() => {
+                    // 3. Print done, pause toolhead
+                    toolhead.style.animation = 'none'; 
+                    
+                    // Pause before drop
+                    setTimeout(() => {
+                        // 4. Create DOM Element
+                        const clone = document.createElement('div');
+                        clone.className = `bambu-print-obj ${currentItem.shape} ${currentItem.colorClass} stacked-item`;
+                        document.querySelector('.overlay-container').appendChild(clone);
+                        
+                        // Hide original object
+                        printContainer.style.opacity = '0';
+                        
+                        // 5. Create Physics Body
+                        // Origin bed is at x=320. Spawning lower (near printer exit) so they don't block the upper view
+                        const startX = 320;
+                        const startY = 1450; 
+                        const size = 80; 
+
+                        let body;
+                        if (currentItem.type === 'circle') {
+                            body = Bodies.circle(startX, startY, 40, { restitution: 0.7, friction: 0.3 }); // More bouncy
+                        } else if (currentItem.shape === 'shape-heart') {
+                            // Give the heart heavily rounded physics corners so it tumbles/rolls smoothly!
+                            body = Bodies.rectangle(startX, startY, size, size, { restitution: 0.6, friction: 0.4, chamfer: { radius: 30 } });
+                        } else {
+                            body = Bodies.rectangle(startX, startY, size, size, { restitution: 0.5, friction: 0.4 }); // Standard bouncy square
+                        }
+                        
+                        // Execute the current stacking pattern for variety!
+                        let vx, vy;
+                        
+                        if (currentPattern === 0) {
+                            // Pattern 1: Alternating Ping-Pong (Left, Right, Left, Right)
+                            const throwDir = (stack.length % 2 === 0) ? 1 : -1;
+                            vx = throwDir * (5 + Math.random() * 4);
+                            vy = -3 - Math.random() * 2;
+                        } else if (currentPattern === 1) {
+                            // Pattern 2: Half-and-Half (Fills left side first, then right side)
+                            const throwDir = (stack.length < MAX_STACK / 2) ? -1 : 1;
+                            vx = throwDir * (4 + Math.random() * 5);
+                            vy = -2 - Math.random() * 4;
+                        } else {
+                            // Pattern 3: Chaos Geyser (High vertical pop, random horizontal scatter)
+                            const throwDir = Math.random() > 0.5 ? 1 : -1;
+                            vx = throwDir * (2 + Math.random() * 8); // Wildly varying horizontal speed
+                            vy = -5 - Math.random() * 4; // Higher vertical pop
+                        }
+
+                        Body.setVelocity(body, { x: vx, y: vy });
+                        Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.6);
+
+                        Composite.add(engine.world, body);
+                        stack.push({ elem: clone, body: body });
+
+                        // Check stack size and trigger loop
+                        setTimeout(() => {
+                            if (stack.length >= MAX_STACK) {
+                                tumbleStack();
+                            } else {
+                                // Randomize the next shape instead of strict looping
+                                let nextIdx = Math.floor(Math.random() * printConfig.length);
+                                if (nextIdx === idx) nextIdx = (nextIdx + 1) % printConfig.length;
+                                idx = nextIdx;
+                                
+                                playAnimationSequence();
+                            }
+                        }, 1200); 
+                        
+                    }, 800);
+                    
+                }, 4000);
+                
+            }, 1500);
+        }
+
+        // 6. Epic Tumble sequence when the pile gets too high
+        function tumbleStack() {
+            // Remove the invisible ground so they fall!
+            Composite.remove(engine.world, ground);
+
+            // Apply a chaotic "pop" explosion force to scatter them
+            stack.forEach(item => {
+                const forceX = (Math.random() - 0.5) * 0.08;
+                const forceY = -Math.random() * 0.05;
+                Body.applyForce(item.body, item.body.position, { x: forceX, y: forceY });
+                Body.setAngularVelocity(item.body, (Math.random() - 0.5) * 0.5);
+            });
+            
+            // Wait for gravity to pull them completely off screen
+            setTimeout(() => {
+                // Cleanup DOM and Physics world
+                stack.forEach(item => {
+                    item.elem.remove();
+                    Composite.remove(engine.world, item.body);
+                });
+                stack.length = 0;
+                
+                // Put the floor back
+                Composite.add(engine.world, ground);
+                
+                // Advance to the next physics pattern
+                currentPattern = (currentPattern + 1) % 3;
+                
+                // Randomize the first shape of the new pile
+                idx = Math.floor(Math.random() * printConfig.length);
+                
+                playAnimationSequence();
+            }, 2500);
+        }
+
+        // Start the cyclical animation
+        setTimeout(playAnimationSequence, 500);
+    </script>
+</body>
+</html>
